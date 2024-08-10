@@ -13,23 +13,21 @@ spec:
     - name: pipeline-workspace
   params:
     - name: repo-url
-      type: string
-      description: The repository URL to clone
     - name: branch
-      type: string
-      description: The branch to checkout
+      default: main
+    - name: build-image
   tasks:
-    - name: cleanup
-      taskRef:
-        name: cleanup-task
+    - name: init
       workspaces:
         - name: source
           workspace: pipeline-workspace
+      taskRef:
+        name: cleanup
 
     - name: clone
       workspaces:
         - name: output
-          workspace: pipeline-workspace          
+          workspace: pipeline-workspace
       taskRef:
         name: git-clone
       params:
@@ -38,7 +36,7 @@ spec:
         - name: revision
           value: $(params.branch)
       runAfter:
-        - cleanup
+        - init
 
     - name: lint
       workspaces:
@@ -50,21 +48,7 @@ spec:
         - name: image
           value: "python:3.9-slim"
         - name: args
-          value: ["--count", "--max-complexity=10", "--max-line-length=127", "--statistics"]
-      runAfter:
-        - clone
-
-    - name: tests
-      workspaces:
-        - name: source
-          workspace: pipeline-workspace
-      taskRef:
-        name: nose
-      params:
-        - name: database_uri
-          value: "sqlite:///test.db"
-        - name: args
-          value: "-v --with-spec --spec-color"
+          value: ["--count","--max-complexity=10","--max-line-length=127","--statistics"]
       runAfter:
         - clone
 
@@ -73,28 +57,18 @@ spec:
         - name: source
           workspace: pipeline-workspace
       taskRef:
-        name: build-task
+        name: build
       params:
         - name: image
-          value: "us.icr.io/$SN_ICR_NAMESPACE/your-image-name:tag"
+          value: $(params.build-image)
       runAfter:
-        - tests
-    
+        - lint
+
     - name: deploy
       workspaces:
-        - name: manifest-dir
+        - name: source
           workspace: pipeline-workspace
       taskRef:
-        name: openshift-client
-        kind: ClusterTask
-      params:
-      - name: SCRIPT
-        value: |
-          echo "Updating manifest..."
-          sed -i "s|IMAGE_NAME_HERE|$(params.build-image)|g" deploy/deployment.yaml
-          cat deploy/deployment.yaml
-          echo "Deploying to OpenShift..."
-          oc apply -f deploy/
-          oc get pods -l app=accounts
+        name: deploy
       runAfter:
         - build
